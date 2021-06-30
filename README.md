@@ -56,7 +56,7 @@ so connecting the ground and the voltage was quite easy. The next stage was whic
 See Photo of my board connections:![IMG_1242](https://user-images.githubusercontent.com/1749237/124006086-bdc30900-d9d1-11eb-8d49-ee9f41c281b7.jpeg)
 
 ### Accessing the sensor via python
-From the above article on Send Sensor Readings... there is a [link to a driver](https://raw.githubusercontent.com/robert-hh/BME280/master/bme280_int.py) which I have taken a snapshot copy of and added it to the root directory. I then copied the python file to the /pyboard folder on the microcontroller. I then main the following chnages to the main.py run file that REPL uses when a control-D is pressed. I have also added this file to the root directory.
+From the above article on Send Sensor Readings... there is a [link to a driver](https://raw.githubusercontent.com/robert-hh/BME280/master/bme280_int.py) which I have taken a snapshot copy of and added it to the src directory. I then copied the python file to the /pyboard folder on the microcontroller. I then main the following chnages to the main.py run file that REPL uses when a control-D is pressed. I have also added this file to the src directory.
 
 main.py
 ```
