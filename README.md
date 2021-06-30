@@ -51,4 +51,6 @@ This took quite some investigations as I was not familiar with the board, nor a 
 I found a schematic for the board pinouts as:
 ![Lolin32_pinout03-1](https://user-images.githubusercontent.com/1749237/123993991-db3da600-d9c4-11eb-9fa6-9cf809c2d402.png)
 
-so connecting the ground and the voltage was quite easy. The next stage was which pins to connect the SDA and SCL to. From the article
+so connecting the ground and the voltage was quite easy. The next stage was which pins to connect the SDA and SCL to. From the article it did not state the pins to use for the LoLin32 Lite SDA,SCL and so I did a further search locating this article [LOLIN32 Lite with I2C SSD1306 OLED 128×64](https://spiritdude.wordpress.com/2018/02/16/lolin32-lite-with-i2c-ssd1306-oled-128x64/) which describes how to use the I2C data transfer mechanism. According to the article the SCL should be connected to Pin 4 and SDA connected to Pin 0.
+
+
