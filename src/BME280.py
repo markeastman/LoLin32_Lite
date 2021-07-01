@@ -1,48 +1,5 @@
-# Updated 2018 and 2020
-# This module is based on the below cited resources, which are all
-# based on the documentation as provided in the Bosch Data Sheet and
-# the sample implementation provided therein.
-#
-# Final Document: BST-BME280-DS002-15
-#
-# Authors: Paul Cunnane 2016, Peter Dahlebrg 2016
-#
-# This module borrows from the Adafruit BME280 Python library. Original
-# Copyright notices are reproduced below.
-#
-# Those libraries were written for the Raspberry Pi. This modification is
-# intended for the MicroPython and esp8266 boards.
-#
-# Copyright (c) 2014 Adafruit Industries
-# Author: Tony DiCola
-#
-# Based on the BMP280 driver with BME280 changes provided by
-# David J Taylor, Edinburgh (www.satsignal.eu)
-#
-# Based on Adafruit_I2C.py created by Kevin Townsend.
-#
-# Permission is hereby granted, free of charge, to any person obtaining a copy
-# of this software and associated documentation files (the "Software"), to deal
-# in the Software without restriction, including without limitation the rights
-# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-# copies of the Software, and to permit persons to whom the Software is
-# furnished to do so, subject to the following conditions:
-#
-# The above copyright notice and this permission notice shall be included in
-# all copies or substantial portions of the Software.
-#
-# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
-# THE SOFTWARE.
-#
-
+from machine import I2C
 import time
-from ustruct import unpack, unpack_from
-from array import array
 
 # BME280 default address.
 BME280_I2CADDR = 0x76
@@ -54,203 +11,275 @@ BME280_OSAMPLE_4 = 3
 BME280_OSAMPLE_8 = 4
 BME280_OSAMPLE_16 = 5
 
+# BME280 Registers
+
+BME280_REGISTER_DIG_T1 = 0x88  # Trimming parameter registers
+BME280_REGISTER_DIG_T2 = 0x8A
+BME280_REGISTER_DIG_T3 = 0x8C
+
+BME280_REGISTER_DIG_P1 = 0x8E
+BME280_REGISTER_DIG_P2 = 0x90
+BME280_REGISTER_DIG_P3 = 0x92
+BME280_REGISTER_DIG_P4 = 0x94
+BME280_REGISTER_DIG_P5 = 0x96
+BME280_REGISTER_DIG_P6 = 0x98
+BME280_REGISTER_DIG_P7 = 0x9A
+BME280_REGISTER_DIG_P8 = 0x9C
+BME280_REGISTER_DIG_P9 = 0x9E
+
+BME280_REGISTER_DIG_H1 = 0xA1
+BME280_REGISTER_DIG_H2 = 0xE1
+BME280_REGISTER_DIG_H3 = 0xE3
+BME280_REGISTER_DIG_H4 = 0xE4
+BME280_REGISTER_DIG_H5 = 0xE5
+BME280_REGISTER_DIG_H6 = 0xE6
+BME280_REGISTER_DIG_H7 = 0xE7
+
+BME280_REGISTER_CHIPID = 0xD0
+BME280_REGISTER_VERSION = 0xD1
+BME280_REGISTER_SOFTRESET = 0xE0
+
 BME280_REGISTER_CONTROL_HUM = 0xF2
-BME280_REGISTER_STATUS = 0xF3
 BME280_REGISTER_CONTROL = 0xF4
+BME280_REGISTER_CONFIG = 0xF5
+BME280_REGISTER_PRESSURE_DATA = 0xF7
+BME280_REGISTER_TEMP_DATA = 0xFA
+BME280_REGISTER_HUMIDITY_DATA = 0xFD
 
-MODE_SLEEP = const(0)
-MODE_FORCED = const(1)
-MODE_NORMAL = const(3)
 
-BME280_TIMEOUT = const(100)  # about 1 second timeout
+class Device:
+  """Class for communicating with an I2C device.
+
+  Allows reading and writing 8-bit, 16-bit, and byte array values to
+  registers on the device."""
+
+  def __init__(self, address, i2c):
+    """Create an instance of the I2C device at the specified address using
+    the specified I2C interface object."""
+    self._address = address
+    self._i2c = i2c
+
+  def writeRaw8(self, value):
+    """Write an 8-bit value on the bus (without register)."""
+    value = value & 0xFF
+    self._i2c.writeto(self._address, value)
+
+  def write8(self, register, value):
+    """Write an 8-bit value to the specified register."""
+    b=bytearray(1)
+    b[0]=value & 0xFF
+    self._i2c.writeto_mem(self._address, register, b)
+
+  def write16(self, register, value):
+    """Write a 16-bit value to the specified register."""
+    value = value & 0xFFFF
+    b=bytearray(2)
+    b[0]= value & 0xFF
+    b[1]= (value>>8) & 0xFF
+    self.i2c.writeto_mem(self._address, register, value)
+
+  def readRaw8(self):
+    """Read an 8-bit value on the bus (without register)."""
+    return int.from_bytes(self._i2c.readfrom(self._address, 1),'little') & 0xFF
+
+  def readU8(self, register):
+    """Read an unsigned byte from the specified register."""
+    return int.from_bytes(
+        self._i2c.readfrom_mem(self._address, register, 1),'little') & 0xFF
+
+  def readS8(self, register):
+    """Read a signed byte from the specified register."""
+    result = self.readU8(register)
+    if result > 127:
+      result -= 256
+    return result
+
+  def readU16(self, register, little_endian=True):
+    """Read an unsigned 16-bit value from the specified register, with the
+    specified endianness (default little endian, or least significant byte
+    first)."""
+    result = int.from_bytes(
+        self._i2c.readfrom_mem(self._address, register, 2),'little') & 0xFFFF
+    if not little_endian:
+      result = ((result << 8) & 0xFF00) + (result >> 8)
+    return result
+
+  def readS16(self, register, little_endian=True):
+    """Read a signed 16-bit value from the specified register, with the
+    specified endianness (default little endian, or least significant byte
+    first)."""
+    result = self.readU16(register, little_endian)
+    if result > 32767:
+      result -= 65536
+    return result
+
+  def readU16LE(self, register):
+    """Read an unsigned 16-bit value from the specified register, in little
+    endian byte order."""
+    return self.readU16(register, little_endian=True)
+
+  def readU16BE(self, register):
+    """Read an unsigned 16-bit value from the specified register, in big
+    endian byte order."""
+    return self.readU16(register, little_endian=False)
+
+  def readS16LE(self, register):
+    """Read a signed 16-bit value from the specified register, in little
+    endian byte order."""
+    return self.readS16(register, little_endian=True)
+
+  def readS16BE(self, register):
+    """Read a signed 16-bit value from the specified register, in big
+    endian byte order."""
+    return self.readS16(register, little_endian=False)
 
 
 class BME280:
+  def __init__(self, mode=BME280_OSAMPLE_1, address=BME280_I2CADDR, i2c=None,
+               **kwargs):
+    # Check that mode is valid.
+    if mode not in [BME280_OSAMPLE_1, BME280_OSAMPLE_2, BME280_OSAMPLE_4,
+                    BME280_OSAMPLE_8, BME280_OSAMPLE_16]:
+        raise ValueError(
+            'Unexpected mode value {0}. Set mode to one of '
+            'BME280_ULTRALOWPOWER, BME280_STANDARD, BME280_HIGHRES, or '
+            'BME280_ULTRAHIGHRES'.format(mode))
+    self._mode = mode
+    # Create I2C device.
+    if i2c is None:
+      raise ValueError('An I2C object is required.')
+    self._device = Device(address, i2c)
+    # Load calibration values.
+    self._load_calibration()
+    self._device.write8(BME280_REGISTER_CONTROL, 0x3F)
+    self.t_fine = 0
 
-    def __init__(self,
-                 mode=BME280_OSAMPLE_8,
-                 address=BME280_I2CADDR,
-                 i2c=None,
-                 **kwargs):
-        # Check that mode is valid.
-        if mode not in [BME280_OSAMPLE_1, BME280_OSAMPLE_2, BME280_OSAMPLE_4,
-                        BME280_OSAMPLE_8, BME280_OSAMPLE_16]:
-            raise ValueError(
-                'Unexpected mode value {0}. Set mode to one of '
-                'BME280_OSAMPLE_1, BME280_OSAMPLE_2, BME280_OSAMPLE_4,'
-                'BME280_OSAMPLE_8, BME280_OSAMPLE_16'.format(mode))
-        self._mode = mode
-        self.address = address
-        if i2c is None:
-            raise ValueError('An I2C object is required.')
-        self.i2c = i2c
-        self.__sealevel = 101325
+  def _load_calibration(self):
 
-        # load calibration data
-        dig_88_a1 = self.i2c.readfrom_mem(self.address, 0x88, 26)
-        dig_e1_e7 = self.i2c.readfrom_mem(self.address, 0xE1, 7)
-        self.dig_T1, self.dig_T2, self.dig_T3, self.dig_P1, \
-            self.dig_P2, self.dig_P3, self.dig_P4, self.dig_P5, \
-            self.dig_P6, self.dig_P7, self.dig_P8, self.dig_P9, \
-            _, self.dig_H1 = unpack("<HhhHhhhhhhhhBB", dig_88_a1)
+    self.dig_T1 = self._device.readU16LE(BME280_REGISTER_DIG_T1)
+    self.dig_T2 = self._device.readS16LE(BME280_REGISTER_DIG_T2)
+    self.dig_T3 = self._device.readS16LE(BME280_REGISTER_DIG_T3)
 
-        self.dig_H2, self.dig_H3, self.dig_H4,\
-            self.dig_H5, self.dig_H6 = unpack("<hBbhb", dig_e1_e7)
-        # unfold H4, H5, keeping care of a potential sign
-        self.dig_H4 = (self.dig_H4 * 16) + (self.dig_H5 & 0xF)
-        self.dig_H5 //= 16
+    self.dig_P1 = self._device.readU16LE(BME280_REGISTER_DIG_P1)
+    self.dig_P2 = self._device.readS16LE(BME280_REGISTER_DIG_P2)
+    self.dig_P3 = self._device.readS16LE(BME280_REGISTER_DIG_P3)
+    self.dig_P4 = self._device.readS16LE(BME280_REGISTER_DIG_P4)
+    self.dig_P5 = self._device.readS16LE(BME280_REGISTER_DIG_P5)
+    self.dig_P6 = self._device.readS16LE(BME280_REGISTER_DIG_P6)
+    self.dig_P7 = self._device.readS16LE(BME280_REGISTER_DIG_P7)
+    self.dig_P8 = self._device.readS16LE(BME280_REGISTER_DIG_P8)
+    self.dig_P9 = self._device.readS16LE(BME280_REGISTER_DIG_P9)
 
-        self.t_fine = 0
+    self.dig_H1 = self._device.readU8(BME280_REGISTER_DIG_H1)
+    self.dig_H2 = self._device.readS16LE(BME280_REGISTER_DIG_H2)
+    self.dig_H3 = self._device.readU8(BME280_REGISTER_DIG_H3)
+    self.dig_H6 = self._device.readS8(BME280_REGISTER_DIG_H7)
 
-        # temporary data holders which stay allocated
-        self._l1_barray = bytearray(1)
-        self._l8_barray = bytearray(8)
-        self._l3_resultarray = array("i", [0, 0, 0])
+    h4 = self._device.readS8(BME280_REGISTER_DIG_H4)
+    h4 = (h4 << 24) >> 20
+    self.dig_H4 = h4 | (self._device.readU8(BME280_REGISTER_DIG_H5) & 0x0F)
 
-        self._l1_barray[0] = self._mode << 5 | self._mode << 2 | MODE_SLEEP
-        self.i2c.writeto_mem(self.address, BME280_REGISTER_CONTROL,
-                             bytearray([0x3c | MODE_SLEEP]))
+    h5 = self._device.readS8(BME280_REGISTER_DIG_H6)
+    h5 = (h5 << 24) >> 20
+    self.dig_H5 = h5 | (
+        self._device.readU8(BME280_REGISTER_DIG_H5) >> 4 & 0x0F)
 
-    def read_raw_data(self, result):
-        """ Reads the raw (uncompensated) data from the sensor.
+  def read_raw_temp(self):
+    """Reads the raw (uncompensated) temperature from the sensor."""
+    meas = self._mode
+    self._device.write8(BME280_REGISTER_CONTROL_HUM, meas)
+    meas = self._mode << 5 | self._mode << 2 | 1
+    self._device.write8(BME280_REGISTER_CONTROL, meas)
+    sleep_time = 1250 + 2300 * (1 << self._mode)
 
-            Args:
-                result: array of length 3 or alike where the result will be
-                stored, in temperature, pressure, humidity order
-            Returns:
-                None
-        """
+    sleep_time = sleep_time + 2300 * (1 << self._mode) + 575
+    sleep_time = sleep_time + 2300 * (1 << self._mode) + 575
+    time.sleep_us(sleep_time)  # Wait the required time
+    msb = self._device.readU8(BME280_REGISTER_TEMP_DATA)
+    lsb = self._device.readU8(BME280_REGISTER_TEMP_DATA + 1)
+    xlsb = self._device.readU8(BME280_REGISTER_TEMP_DATA + 2)
+    raw = ((msb << 16) | (lsb << 8) | xlsb) >> 4
+    return raw
 
-        self._l1_barray[0] = self._mode
-        self.i2c.writeto_mem(self.address, BME280_REGISTER_CONTROL_HUM,
-                             self._l1_barray)
-        self._l1_barray[0] = self._mode << 5 | self._mode << 2 | MODE_FORCED
-        self.i2c.writeto_mem(self.address, BME280_REGISTER_CONTROL,
-                             self._l1_barray)
+  def read_raw_pressure(self):
+    """Reads the raw (uncompensated) pressure level from the sensor."""
+    """Assumes that the temperature has already been read """
+    """i.e. that enough delay has been provided"""
+    msb = self._device.readU8(BME280_REGISTER_PRESSURE_DATA)
+    lsb = self._device.readU8(BME280_REGISTER_PRESSURE_DATA + 1)
+    xlsb = self._device.readU8(BME280_REGISTER_PRESSURE_DATA + 2)
+    raw = ((msb << 16) | (lsb << 8) | xlsb) >> 4
+    return raw
 
-        # Wait for conversion to complete
-        for _ in range(BME280_TIMEOUT):
-            if self.i2c.readfrom_mem(self.address, BME280_REGISTER_STATUS, 1)[0] & 0x08:
-                time.sleep_ms(10)  # still busy
-            else:
-                break  # Sensor ready
-        else:
-            raise RuntimeError("Sensor BME280 not ready")
+  def read_raw_humidity(self):
+    """Assumes that the temperature has already been read """
+    """i.e. that enough delay has been provided"""
+    msb = self._device.readU8(BME280_REGISTER_HUMIDITY_DATA)
+    lsb = self._device.readU8(BME280_REGISTER_HUMIDITY_DATA + 1)
+    raw = (msb << 8) | lsb
+    return raw
 
-        # burst readout from 0xF7 to 0xFE, recommended by datasheet
-        self.i2c.readfrom_mem_into(self.address, 0xF7, self._l8_barray)
-        readout = self._l8_barray
-        # pressure(0xF7): ((msb << 16) | (lsb << 8) | xlsb) >> 4
-        raw_press = ((readout[0] << 16) | (readout[1] << 8) | readout[2]) >> 4
-        # temperature(0xFA): ((msb << 16) | (lsb << 8) | xlsb) >> 4
-        raw_temp = ((readout[3] << 16) | (readout[4] << 8) | readout[5]) >> 4
-        # humidity(0xFD): (msb << 8) | lsb
-        raw_hum = (readout[6] << 8) | readout[7]
+  def read_temperature(self):
+    """Get the compensated temperature in 0.01 of a degree celsius."""
+    adc = self.read_raw_temp()
+    var1 = ((adc >> 3) - (self.dig_T1 << 1)) * (self.dig_T2 >> 11)
+    var2 = ((
+        (((adc >> 4) - self.dig_T1) * ((adc >> 4) - self.dig_T1)) >> 12) *
+        self.dig_T3) >> 14
+    self.t_fine = var1 + var2
+    return (self.t_fine * 5 + 128) >> 8
 
-        result[0] = raw_temp
-        result[1] = raw_press
-        result[2] = raw_hum
+  def read_pressure(self):
+    """Gets the compensated pressure in Pascals."""
+    adc = self.read_raw_pressure()
+    var1 = self.t_fine - 128000
+    var2 = var1 * var1 * self.dig_P6
+    var2 = var2 + ((var1 * self.dig_P5) << 17)
+    var2 = var2 + (self.dig_P4 << 35)
+    var1 = (((var1 * var1 * self.dig_P3) >> 8) +
+            ((var1 * self.dig_P2) >> 12))
+    var1 = (((1 << 47) + var1) * self.dig_P1) >> 33
+    if var1 == 0:
+      return 0
+    p = 1048576 - adc
+    p = (((p << 31) - var2) * 3125) // var1
+    var1 = (self.dig_P9 * (p >> 13) * (p >> 13)) >> 25
+    var2 = (self.dig_P8 * p) >> 19
+    return ((p + var1 + var2) >> 8) + (self.dig_P7 << 4)
 
-    def read_compensated_data(self, result=None):
-        """ Reads the data from the sensor and returns the compensated data.
+  def read_humidity(self):
+    adc = self.read_raw_humidity()
+    # print 'Raw humidity = {0:d}'.format (adc)
+    h = self.t_fine - 76800
+    h = (((((adc << 14) - (self.dig_H4 << 20) - (self.dig_H5 * h)) +
+         16384) >> 15) * (((((((h * self.dig_H6) >> 10) * (((h *
+                          self.dig_H3) >> 11) + 32768)) >> 10) + 2097152) *
+                          self.dig_H2 + 8192) >> 14))
+    h = h - (((((h >> 15) * (h >> 15)) >> 7) * self.dig_H1) >> 4)
+    h = 0 if h < 0 else h
+    h = 419430400 if h > 419430400 else h
+    return h >> 12
 
-            Args:
-                result: array of length 3 or alike where the result will be
-                stored, in temperature, pressure, humidity order. You may use
-                this to read out the sensor without allocating heap memory
+  @property
+  def temperature(self):
+    "Return the temperature in degrees."
+    t = self.read_temperature()
+    ti = t // 100
+    td = t - ti * 100
+    return "{}.{:02d}C".format(ti, td)
 
-            Returns:
-                array with temperature, pressure, humidity. Will be the one
-                from the result parameter if not None
-        """
-        self.read_raw_data(self._l3_resultarray)
-        raw_temp, raw_press, raw_hum = self._l3_resultarray
-        # temperature
-        var1 = (((raw_temp // 8) - (self.dig_T1 * 2)) * self.dig_T2) // 2048
-        var2 = (raw_temp // 16) - self.dig_T1
-        var2 = (((var2 * var2) // 4096) * self.dig_T3) // 16384
-        self.t_fine = var1 + var2
-        temp = (self.t_fine * 5 + 128) // 256
+  @property
+  def pressure(self):
+    "Return the temperature in hPa."
+    p = self.read_pressure() // 256
+    pi = p // 100
+    pd = p - pi * 100
+    return "{}.{:02d}hPa".format(pi, pd)
 
-        # pressure
-        var1 = self.t_fine - 128000
-        var2 = var1 * var1 * self.dig_P6
-        var2 = var2 + ((var1 * self.dig_P5) << 17)
-        var2 = var2 + (self.dig_P4 << 35)
-        var1 = (((var1 * var1 * self.dig_P3) >> 8) +
-                ((var1 * self.dig_P2) << 12))
-        var1 = (((1 << 47) + var1) * self.dig_P1) >> 33
-        if var1 == 0:
-            pressure = 0
-        else:
-            p = ((((1048576 - raw_press) << 31) - var2) * 3125) // var1
-            var1 = (self.dig_P9 * (p >> 13) * (p >> 13)) >> 25
-            var2 = (self.dig_P8 * p) >> 19
-            pressure = ((p + var1 + var2) >> 8) + (self.dig_P7 << 4)
-
-        # humidity
-        h = self.t_fine - 76800
-        h = (((((raw_hum << 14) - (self.dig_H4 << 20) -
-                (self.dig_H5 * h)) + 16384) >> 15) *
-             (((((((h * self.dig_H6) >> 10) *
-                (((h * self.dig_H3) >> 11) + 32768)) >> 10) + 2097152) *
-              self.dig_H2 + 8192) >> 14))
-        h = h - (((((h >> 15) * (h >> 15)) >> 7) * self.dig_H1) >> 4)
-        h = 0 if h < 0 else h
-        h = 419430400 if h > 419430400 else h
-        humidity = h >> 12
-
-        if result:
-            result[0] = temp
-            result[1] = pressure
-            result[2] = humidity
-            return result
-
-        return array("i", (temp, pressure, humidity))
-
-    @property
-    def sealevel(self):
-        return self.__sealevel
-
-    @sealevel.setter
-    def sealevel(self, value):
-        if 300 < value < 1200:  # just ensure some reasonable value
-            self.__sealevel = value
-
-    @property
-    def altitude(self):
-        '''
-        Altitude in m.
-        '''
-        from math import pow
-        try:
-            p = 44330 * (1.0 - pow((self.read_compensated_data()[1] / 256) /
-                                   self.__sealevel, 0.1903))
-        except:
-            p = 0.0
-        return p
-
-    @property
-    def dew_point(self):
-        """
-        Compute the dew point temperature for the current Temperature
-        and Humidity measured pair
-        """
-        from math import log
-        t, p, h = self.read_compensated_data()
-        t /= 100
-        h /= 1024
-        h = (log(h, 10) - 2) / 0.4343 + (17.62 * t) / (243.12 + t)
-        return (243.12 * h / (17.62 - h)) * 100
-
-    @property
-    def values(self):
-        """ human readable values """
-
-        t, p, h = self.read_compensated_data()
-
-        p = p / 256
-
-        h = h / 1024
-        return ("{}C".format(t / 100), "{:.02f}hPa".format(p/100),
-                "{:.02f}%".format(h))
+  @property
+  def humidity(self):
+    "Return the humidity in percent."
+    h = self.read_humidity()
+    hi = h // 1024
+    hd = h * 100 // 1024 - hi * 100
+    return "{}.{:02d}%".format(hi, hd)
